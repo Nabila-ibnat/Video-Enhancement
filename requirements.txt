@@ -1,6 +1,7 @@
 streamlit
 opencv-python
 numpy
+pandas
 pillow
 imageio
 scikit-image

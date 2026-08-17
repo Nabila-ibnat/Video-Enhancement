@@ -392,10 +392,17 @@ if page == "1. Video Processing & Playback":
         lut  = _gamma_lut(gamma)
         ghpf = _ghpf(H, W)
 
-        # ── VideoWriter: using imageio with libx264 for Streamlit compatibility ──
-        writer = imageio.get_writer(enh_tmp, fps=fps, codec='libx264')
+        try:
+            # ── VideoWriter: using imageio with libx264 for Streamlit compatibility ──
+            writer = imageio.get_writer(enh_tmp, fps=fps, codec='libx264')
+        except Exception as e:
+            st.error(f"❌ Video writer initialization failed: {str(e)}")
+            st.stop()
 
         cap = cv2.VideoCapture(orig_tmp)
+        if not cap.isOpened():
+            st.error("❌ Could not open input video file")
+            st.stop()
 
         prog_bar  = st.progress(0.0, text="Processing…")
         status_ph = st.empty()
@@ -407,36 +414,44 @@ if page == "1. Video Processing & Playback":
         psnr_acc, ssim_acc, n = 0.0, 0.0, 0
         t_start = time.perf_counter()
 
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            n += 1
+        try:
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                n += 1
 
-            enh = enhance_frame(frame, lut, ghpf, ksize)
+                enh = enhance_frame(frame, lut, ghpf, ksize)
 
-            # Metrics (on RGB copies so skimage gets correct channel order)
-            orig_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            enh_rgb  = cv2.cvtColor(enh,   cv2.COLOR_BGR2RGB)
-            
-            # Write using imageio (expects RGB)
-            writer.append_data(enh_rgb)
-            psnr_acc += _psnr(orig_rgb, enh_rgb)
-            ssim_acc += _ssim(orig_rgb, enh_rgb)
+                # Metrics (on RGB copies so skimage gets correct channel order)
+                orig_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                enh_rgb  = cv2.cvtColor(enh,   cv2.COLOR_BGR2RGB)
+                
+                # Write using imageio (expects RGB)
+                writer.append_data(enh_rgb)
+                psnr_acc += _psnr(orig_rgb, enh_rgb)
+                ssim_acc += _ssim(orig_rgb, enh_rgb)
 
-            # Update progress every 5 frames to avoid UI overhead
-            if n % 5 == 0 or n == total:
-                pct = min(n / max(total, 1), 1.0)
-                elapsed = time.perf_counter() - t_start
-                eta     = (elapsed / n) * (total - n) if n < total else 0
-                prog_bar.progress(
-                    pct,
-                    text=f"Frame {n}/{total}  |  "
-                         f"{elapsed:.1f}s elapsed  |  ETA {eta:.0f}s",
-                )
+                # Update progress every 5 frames to avoid UI overhead
+                if n % 5 == 0 or n == total:
+                    pct = min(n / max(total, 1), 1.0)
+                    elapsed = time.perf_counter() - t_start
+                    eta     = (elapsed / n) * (total - n) if n < total else 0
+                    prog_bar.progress(
+                        pct,
+                        text=f"Frame {n}/{total}  |  "
+                             f"{elapsed:.1f}s elapsed  |  ETA {eta:.0f}s",
+                    )
 
-        cap.release()
-        writer.close()
+        except Exception as e:
+            st.error(f"❌ Processing error: {str(e)}")
+            st.stop()
+        finally:
+            cap.release()
+            try:
+                writer.close()
+            except:
+                pass
 
         st.session_state["avg_psnr"] = psnr_acc / max(n, 1)
         st.session_state["avg_ssim"] = ssim_acc / max(n, 1)
